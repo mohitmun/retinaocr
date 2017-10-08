@@ -1,0 +1,16 @@
+documents:
+  - type: PAN
+    markers:
+      - income
+      - tax
+      - department
+    fields:
+      - name: name
+        bbox: [0,27,39,35] 
+        # bbox: [-2,25,41,37] 
+      - name: fathers_name
+        bbox: [0, 38, 26, 45]
+      - name: "pan_no"
+        bbox: [0, 67, 26, 72]
+      - name: "dob"
+        bbox: [0, 52, 18, 59]
