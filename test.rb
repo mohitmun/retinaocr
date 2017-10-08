@@ -24,17 +24,17 @@ def get_size(image)
 end
 
 def get_width(image)
-  return get_size(image).split(" ")[0]
+  return get_size(image).split(" ")[0].to_i
 end
 
 def get_height(image)
-  return get_size(image).split(" ")[1]
+  return get_size(image).split(" ")[1].to_i
 end
 
 def draw_rect(file_name, out_file_name, coordinates)
   #todo draw multiple
   rect_coordinate = coordinates.join(",")
-  return run_command("convert #{file_name} -fill none -stroke black -strokewidth 4 -draw \"rectangle #{rect_coordinate}\"  #{out_file_name}")
+  # return run_command("convert #{file_name} -fill none -stroke black -strokewidth 4 -draw \"rectangle #{rect_coordinate}\"  #{out_file_name}")
 end
 # files = ARGV
 
@@ -44,6 +44,12 @@ end
 def run_ocr(file_name)
   res =  run_command("tesseract #{file_name} #{file_name}")
   return res
+end
+
+def crop(file_name, out_file_name, bbox)
+  w = bbox[0] - bbox[2]
+  h = bbox[1] - bbox[3]
+  res = run_command("convert -crop #{w.abs}x#{h.abs}+#{bbox[0]}+#{bbox[1]}  #{file_name} #{out_file_name}")
 end
 
 def run_ocr_all_psm(file_name)
@@ -61,7 +67,7 @@ def parse_title(title)
   title = title.split(";")
   title.each do |item|
     item = item.split(" ")
-    res[item[0]] = item[1..-1]
+    res[item[0]] = item[1..-1].map{|a| a.to_i}
   end
   return res
 end
@@ -96,7 +102,12 @@ def get_ocr_lines(file_name)
   res = []
   doc = Nokogiri(File.read(file_name))
   doc.css(".ocr_line").each do |item|
-    res << {text: item.text.strip.downcase}.merge(parse_title(item.attr("title")))
+    words = []
+    item.css(".ocrx_word").each do |word|
+      confidence =  parse_title(word.attr("title"))["x_wconf"]
+      words << {text: word.text.strip.downcase, confidence: confidence}
+    end
+    res << {text: item.text.strip.downcase, words: words}.merge(parse_title(item.attr("title")))
   end
   return res
 end
@@ -117,18 +128,24 @@ end
 
 def get_json(file_name, document_type)
   ocr_lines = get_ocr_lines("#{file_name}.hocr")
-  result = Hash.new("")
+  result = Hash.new([])
   # ocr_lines.each do |line|
   # end
+  w = get_width(file_name)
+  h = get_height(file_name)
   document_type.fields.each do |field|
     ocr_lines.each do |line|
-      ocr_line_noramlised = [line.bbox[0]/get_width(file_name), line.bbox[1]/get_height(file_name), line.bbox[2]/get_width(file_name), line.bbox[3]/get_height(file_name)]
+      ocr_line_noramlised = [line.bbox[0]*100.0/w, line.bbox[1]*100.0/h, line.bbox[2]*100.0/w, line.bbox[3]*100.0/h]
+      ocr_line_noramlised = ocr_line_noramlised.map{|a| a.round(2)}
       ocr_line_bbox = Matrix[ocr_line_noramlised]
       field_bbox = Matrix[field.bbox]
-      c = b - a
+      c = field_bbox - ocr_line_bbox
+      puts "c: #{c} \nocr_line_noramlised: #{ocr_line_noramlised} \ntext: #{line.text}    field: #{field.name} \n====="
       c = c.to_a.flatten
-      if c.all?(&:negative?)
-        result[field.name] = result[field.name] + line.text + " "
+      if c.all?{|d| d.abs < 4 }
+        field_infos = result[field.name]
+        field_infos = field_infos + [{value: line.text, words: line.words}]
+        result[field.name] = field_infos
       end
     end
   end
