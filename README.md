@@ -1,4 +1,4 @@
-### Retina
+### RetinaOCR
 
 Cross-platform, Configurable, Extendable, Self-hosted(offline too) OCR Engine specifically built for Indian Documents(Built during SBCHackathon Oct 6-7-8 2017)
 
