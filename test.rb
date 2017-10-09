@@ -34,7 +34,7 @@ end
 def draw_rect(file_name, out_file_name, coordinates)
   #todo draw multiple
   rect_coordinate = coordinates.join(",")
-  # return run_command("convert #{file_name} -fill none -stroke black -strokewidth 4 -draw \"rectangle #{rect_coordinate}\"  #{out_file_name}")
+  return run_command("convert #{file_name} -fill none -stroke black -strokewidth 4 -draw \"rectangle #{rect_coordinate}\"  #{out_file_name}")
 end
 # files = ARGV
 
@@ -46,7 +46,7 @@ def run_ocr(file_name)
   return res
 end
 
-def crop(file_name, out_file_name, bbox)
+def crop_image(file_name, out_file_name, bbox)
   w = bbox[0] - bbox[2]
   h = bbox[1] - bbox[3]
   res = run_command("convert -crop #{w.abs}x#{h.abs}+#{bbox[0]}+#{bbox[1]}  #{file_name} #{out_file_name}")
@@ -86,7 +86,41 @@ def grayscale(file_name, out_file_name)
 end
 
 def resize(file_name, out_file_name)
-  return run_command("convert -resize 1000x600  #{file_name} #{out_file_name}")
+  return run_command("convert -resize 1000  #{file_name} #{out_file_name}")
+end
+
+def doc_crop(file_name, out_file_name, origin)
+  ocr_words = get_ocr_words("#{file_name}.hocr")
+  crop_x = 0
+  crop_y = 0
+  ocr_words.each do |line|
+    if origin.include?(line.text)
+      crop_x = line.bbox[0]
+      crop_y = line.bbox[1]
+    end
+    
+  end
+  crop_image(file_name, out_file_name, [crop_x - 10, crop_y + 10, get_width(file_name), get_height(file_name)])
+end
+
+def smart_cropper(ideal, current, ideal_width, ideal_height)
+  # 0,0 => [50, 571, 168, 596]
+  # 1000 => 
+  #
+  current = current.map(&:to_f)
+  ideal = ideal.map(&:to_f)
+  crop_width =  (ideal_width*(current[2] - current[0])) / (ideal[2] - ideal[0])
+  crop_height =  (ideal_height*(current[3] - current[1])) / (ideal[3] - ideal[1])
+  # crop_x = current[0] - (((current[2] - current[0])*ideal[0])/ (ideal[2] - ideal[0]))
+  # crop_y = current[1] - (((current[3] - current[1])*ideal[1])/ (ideal[3] - ideal[1]))
+  # crop_x = current[0] - ideal[0]
+  # crop_y = current[1] - ideal[1]
+  gap_x = crop_width * ideal[0] / ideal_width
+  gap_y = crop_height * ideal[1] / ideal_height
+  puts "crop_height: #{crop_height}"
+  crop_x = current[0] - gap_x
+  crop_y = current[1] - gap_y
+  return [crop_x, crop_y, crop_width, crop_height]
 end
 
 def get_ocr_careas(file_name)
@@ -112,6 +146,15 @@ def get_ocr_lines(file_name)
   return res
 end
 
+def get_ocr_words(file_name)
+  res = []
+  doc = Nokogiri(File.read(file_name))
+  doc.css(".ocrx_word").each do |item|
+    res << {text: item.text.strip.downcase}.merge(parse_title(item.attr("title")))
+  end
+  return res
+end
+
 def draw_carea(file_name)
   ocr_areas = get_ocr_careas("#{file_name}.hocr")
   ocr_areas.each do |item|
@@ -133,22 +176,26 @@ def get_json(file_name, document_type)
   # end
   w = get_width(file_name)
   h = get_height(file_name)
-  document_type.fields.each do |field|
-    ocr_lines.each do |line|
-      ocr_line_noramlised = [line.bbox[0]*100.0/w, line.bbox[1]*100.0/h, line.bbox[2]*100.0/w, line.bbox[3]*100.0/h]
-      ocr_line_noramlised = ocr_line_noramlised.map{|a| a.round(2)}
-      ocr_line_bbox = Matrix[ocr_line_noramlised]
-      field_bbox = Matrix[field.bbox]
-      c = field_bbox - ocr_line_bbox
-      puts "c: #{c} \nocr_line_noramlised: #{ocr_line_noramlised} \ntext: #{line.text}    field: #{field.name} \n====="
-      c = c.to_a.flatten
-      if c.all?{|d| d.abs < 4 }
-        field_infos = result[field.name]
-        field_infos = field_infos + [{value: line.text, words: line.words}]
-        result[field.name] = field_infos
+  if !document_type.nil?
+    document_type.fields.each do |field|
+      ocr_lines.each do |line|
+        ocr_line_noramlised = [line.bbox[0]*100.0/w, line.bbox[1]*100.0/h, line.bbox[2]*100.0/w, line.bbox[3]*100.0/h]
+        ocr_line_noramlised = ocr_line_noramlised.map{|a| a.round(2)}
+        ocr_line_bbox = Matrix[ocr_line_noramlised]
+        field_bbox = Matrix[field.bbox]
+        c = field_bbox - ocr_line_bbox
+        puts "c: #{c} \nocr_line_noramlised: #{ocr_line_noramlised} \ntext: #{line.text}    field: #{field.name} \n====="
+        c = c.to_a.flatten
+        if c.all?{|d| d.abs < 10 }
+          field_infos = result[field.name]
+          field_infos = field_infos + [{value: line.text.upcase, words: line.words}]
+          result[field.name] = field_infos
+        end
       end
     end
   end
+  result["type"] = document_type.type
+  result["raw"] = Nokogiri(File.read("#{file_name}.hocr")).text.gsub("\n", " ")
   return result
 end
 
@@ -158,8 +205,17 @@ def detect_type(file_name)
   config.documents.each do |document|
     lines.each do |line|
       common = line.text.split(" ") & document.markers
+      if common.blank?
+        document.markers.each do |a|
+          if line.text.include?(a)
+            return document
+          end
+        end
+      end
+
       if !common.blank?
         return document
+      
       end
     end
   end
@@ -181,6 +237,7 @@ def pipeline(file_name)
   result = File.read("#{process_file_name}.hocr")
   draw_lines(process_file_name)
   document_type = detect_type(process_file_name)
+  # doc_crop(process_file_name, "cropped" + process_file_name, document_type.origin)
   get_json(process_file_name, document_type)
   # get_json(process_file_name)
   # draw_carea(process_file_name)

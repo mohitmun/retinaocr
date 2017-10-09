@@ -4,6 +4,12 @@ documents:
       - income
       - tax
       - department
+      - permanent
+      - account
+      - number
+      - signa
+    origin: ["income", "tax", "department"]
+
     fields:
       - name: name
         bbox: [0,27,39,35] 
@@ -14,3 +20,30 @@ documents:
         bbox: [0, 67, 26, 72]
       - name: "dob"
         bbox: [0, 52, 18, 59]
+  - type: AADHAAR
+    markers:
+      - adhikar
+      - aam
+      - aadmi
+      - year
+      - birth
+      - male
+      - female
+    # origin: ["income", "tax", "department"]
+    fields:
+      - name: name
+        bbox: [29.0, 29.36, 52.7, 34.71]
+        # bbox: [-2,25,41,37] 
+      - name: aadhaar_no
+        bbox: [28.6, 73.09, 68.0, 84.25]
+      - name: dob
+        bbox: [26.6, 35.32, 70.1, 41.59]
+  - type: SALARY SLIP
+    markers:
+      - salary
+      - slip
+    fields:
+      - name: name
+        bbox:  [12.1, 21.19, 41.8, 23.07]
+      - name: pay
+        bbox: [27.3, 32.55, 79.8, 34.43]
